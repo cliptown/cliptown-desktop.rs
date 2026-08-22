@@ -1,0 +1,73 @@
+name: Rust desktop CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            libasound2-dev \
+            libfontconfig-dev \
+            libssl-dev \
+            libwayland-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxkbcommon-x11-0 \
+            libxkbcommon0 \
+            libxcursor-dev \
+            libxi-dev
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: '1.88.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Run all tests
+        run: cargo test --locked --all-targets --no-default-features
+      - name: Build headless storage and clipboard contract
+        run: cargo build --locked --release --no-default-features
+      - name: Run multimodal SQLite/vector contract probe
+        run: cargo run --locked --release --no-default-features -- contract-probe
+      - name: Build native release application
+        run: cargo build --locked --release
+      - name: Upload native application
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cliptown-rust-desktop-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            target/release/cliptown-desktop
+            target/release/cliptown-desktop.exe
+          if-no-files-found: error
+          retention-days: 14

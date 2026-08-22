@@ -1,0 +1,40 @@
+# ClipTown native desktop
+
+This is the independent Rust/GPUI implementation of ClipTown for macOS, Windows,
+and Linux. It is developed side-by-side with
+[`cliptown-flutter`](https://github.com/cliptown/cliptown-flutter); neither client is
+a prototype, fallback, wrapper, or replacement for the other.
+
+The first functional slice provides:
+
+- native text, PNG image, and file-list clipboard reads;
+- bounded local history with a user-configurable item count;
+- SQLite FTS search and SQLite-resident 384-dimensional text vectors;
+- pinned items that survive ordinary retention pruning;
+- a native GPUI history window; and
+- a headless conformance probe used on Windows, macOS, and Linux CI runners.
+
+Cloud synchronization remains end-to-end encrypted. Images and file bytes belong in
+randomly named encrypted Cloudflare R2 objects; Postgres and CockroachDB receive the
+encrypted clip/object manifests and encrypted, explicitly opted-in vector backups.
+Local absolute paths, plaintext clip text, and plaintext embeddings are not remote
+database fields.
+
+## Development
+
+```sh
+cargo fmt --all --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+cargo run -- contract-probe
+cargo run
+```
+
+`cargo run` opens the GPUI window and reads the same SQLite database used by the
+headless commands. `capture-once`, `search`, and `set-history-limit` are useful for
+diagnostics without opening a window; their output never contains clipboard content
+unless the user explicitly requests search results in their own terminal.
+
+See [docs/DESKTOP_TOOLKIT.md](docs/DESKTOP_TOOLKIT.md) and
+[docs/STORAGE_AND_SYNC.md](docs/STORAGE_AND_SYNC.md) for the long-lived boundaries.
+
