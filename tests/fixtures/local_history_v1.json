@@ -1,0 +1,30 @@
+{
+  "contract": "cliptown.local-history.v1",
+  "embedding_dimensions": 384,
+  "history_limit": 2,
+  "clips": [
+    {
+      "kind": "text",
+      "text": "contract alpha searchable text",
+      "html": "<p>contract alpha searchable text</p>",
+      "pinned": true
+    },
+    {
+      "kind": "image_png",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQY+WP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
+    },
+    {
+      "kind": "files",
+      "uris": ["file:///cliptown/contract.bin"]
+    }
+  ],
+  "lexical_query": "searchable",
+  "vector_query": "alpha searchable",
+  "expected": {
+    "stored_items": 3,
+    "pinned_items": 1,
+    "lexical_hits": 1,
+    "vector_hits": 1,
+    "embedding_rows": 1
+  }
+}

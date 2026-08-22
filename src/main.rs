@@ -1,14 +1,16 @@
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use clap::{Parser, Subcommand};
-use cliptown_desktop::{HistoryStore, clipboard::read_native_clipboard};
+use cliptown_desktop::{ClipInput, HistoryStore, clipboard::read_native_clipboard};
 use directories::ProjectDirs;
 #[cfg(feature = "desktop-ui")]
 use gpui::{
     App, Application, Bounds, Context, IntoElement, Render, SharedString, Window, WindowBounds,
     WindowOptions, div, prelude::*, px, rgb, size,
 };
+use serde::Deserialize;
 use serde_json::json;
 
 #[derive(Debug, Parser)]
@@ -31,7 +33,10 @@ enum Command {
     SetHistoryLimit {
         count: usize,
     },
-    ContractProbe,
+    ContractProbe {
+        #[arg(long)]
+        fixture: Option<PathBuf>,
+    },
 }
 
 #[cfg(feature = "desktop-ui")]
@@ -91,7 +96,7 @@ fn main() -> Result<()> {
             store.set_history_limit(count)?;
             println!("{}", json!({"history_limit": store.history_limit()?}));
         }
-        Some(Command::ContractProbe) => contract_probe()?,
+        Some(Command::ContractProbe { fixture }) => contract_probe(fixture.as_deref())?,
         None => run_window(database)?,
     }
     Ok(())
@@ -141,28 +146,97 @@ fn run_window(_database: PathBuf) -> Result<()> {
     anyhow::bail!("the desktop window requires the desktop-ui Cargo feature")
 }
 
-fn contract_probe() -> Result<()> {
+#[derive(Debug, Deserialize)]
+struct ContractFixture {
+    contract: String,
+    embedding_dimensions: usize,
+    history_limit: usize,
+    clips: Vec<FixtureClip>,
+    lexical_query: String,
+    vector_query: String,
+    expected: FixtureExpected,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum FixtureClip {
+    Text {
+        text: String,
+        html: Option<String>,
+        pinned: bool,
+    },
+    ImagePng {
+        base64: String,
+    },
+    Files {
+        uris: Vec<String>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct FixtureExpected {
+    stored_items: usize,
+    pinned_items: usize,
+    lexical_hits: usize,
+    vector_hits: usize,
+    embedding_rows: usize,
+}
+
+fn contract_probe(fixture_path: Option<&std::path::Path>) -> Result<()> {
+    let encoded = if let Some(path) = fixture_path {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("read tandem contract fixture {}", path.display()))?
+    } else {
+        include_str!("../tests/fixtures/local_history_v1.json").to_owned()
+    };
+    let fixture: ContractFixture =
+        serde_json::from_str(&encoded).context("parse tandem contract fixture")?;
+    if fixture.embedding_dimensions != cliptown_desktop::embedding::EMBEDDING_DIMENSIONS {
+        anyhow::bail!("fixture embedding dimensions do not match this client")
+    }
     let mut store = HistoryStore::open_in_memory()?;
-    store.set_history_limit(2)?;
-    let text_clip = store.insert(&cliptown_desktop::ClipInput::Text {
-        text: "contract alpha searchable text".to_owned(),
-        html: None,
-    })?;
-    store.set_pinned(text_clip.id, true)?;
-    store.insert(&cliptown_desktop::ClipInput::ImagePng {
-        bytes: one_pixel_png(),
-    })?;
-    store.insert(&cliptown_desktop::ClipInput::Files {
-        uris: vec!["file:///cliptown/contract.bin".to_owned()],
-    })?;
+    store.set_history_limit(fixture.history_limit)?;
+    for clip in fixture.clips {
+        let (input, pinned) = match clip {
+            FixtureClip::Text { text, html, pinned } => (ClipInput::Text { text, html }, pinned),
+            FixtureClip::ImagePng { base64 } => (
+                ClipInput::ImagePng {
+                    bytes: BASE64_STANDARD
+                        .decode(base64)
+                        .context("decode fixture PNG")?,
+                },
+                false,
+            ),
+            FixtureClip::Files { uris } => (ClipInput::Files { uris }, false),
+        };
+        let stored = store.insert(&input)?;
+        if pinned {
+            store.set_pinned(stored.id, true)?;
+        }
+    }
+    let stored_items = store.count()?;
+    let pinned_items = store
+        .list(100_000)?
+        .iter()
+        .filter(|clip| clip.pinned)
+        .count();
+    let lexical_hits = store.text_search(&fixture.lexical_query, 10)?.len();
+    let vector_hits = store.vector_search(&fixture.vector_query, 10)?.len();
+    let embedding_rows = store.embedding_count()?;
+    anyhow::ensure!(stored_items == fixture.expected.stored_items);
+    anyhow::ensure!(pinned_items == fixture.expected.pinned_items);
+    anyhow::ensure!(lexical_hits == fixture.expected.lexical_hits);
+    anyhow::ensure!(vector_hits == fixture.expected.vector_hits);
+    anyhow::ensure!(embedding_rows == fixture.expected.embedding_rows);
     let result = json!({
-        "contract": "cliptown.local-history.v1",
+        "contract": fixture.contract,
+        "embedding_dimensions": fixture.embedding_dimensions,
         "history_limit": store.history_limit()?,
-        "stored_items": store.count()?,
-        "pinned_items": store.list(10)?.iter().filter(|clip| clip.pinned).count(),
-        "text_hits": store.text_search("searchable", 10)?.len(),
-        "vector_hits": store.vector_search("alpha searchable", 10)?.len(),
-        "embedding_rows": store.embedding_count()?,
+        "stored_items": stored_items,
+        "pinned_items": pinned_items,
+        "lexical_hits": lexical_hits,
+        "vector_hits": vector_hits,
+        "embedding_rows": embedding_rows,
         "supports": ["text", "image/png", "file-list"],
     });
     println!("{result}");
@@ -173,12 +247,4 @@ fn default_database_path() -> Result<PathBuf> {
     let project = ProjectDirs::from("com", "ClipTown", "ClipTown")
         .context("resolve operating-system application data directory")?;
     Ok(project.data_local_dir().join("history-v1.db"))
-}
-
-fn one_pixel_png() -> Vec<u8> {
-    vec![
-        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
-        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 240, 31,
-        0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
-    ]
 }
