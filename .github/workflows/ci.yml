@@ -32,6 +32,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang \
+            libdbus-1-dev \
             libasound2-dev \
             libfontconfig-dev \
             libssl-dev \

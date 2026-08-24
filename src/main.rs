@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+#[cfg(feature = "bluetooth")]
+use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
@@ -36,6 +38,13 @@ enum Command {
     ContractProbe {
         #[arg(long)]
         fixture: Option<PathBuf>,
+    },
+    /// Scan for rotating ClipTown BLE advertisements in one foreground window.
+    /// Output intentionally omits OS transport identifiers.
+    #[cfg(feature = "bluetooth")]
+    NearbyScan {
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=30))]
+        seconds: u64,
     },
 }
 
@@ -97,8 +106,40 @@ fn main() -> Result<()> {
             println!("{}", json!({"history_limit": store.history_limit()?}));
         }
         Some(Command::ContractProbe { fixture }) => contract_probe(fixture.as_deref())?,
+        #[cfg(feature = "bluetooth")]
+        Some(Command::NearbyScan { seconds }) => nearby_scan(seconds)?,
         None => run_window(database)?,
     }
+    Ok(())
+}
+
+#[cfg(feature = "bluetooth")]
+fn nearby_scan(seconds: u64) -> Result<()> {
+    let runtime = tokio::runtime::Runtime::new().context("start Bluetooth runtime")?;
+    let candidates = runtime.block_on(async move {
+        let mut central = cliptown_desktop::bluetooth::BluetoothCentral::new().await?;
+        central.discover(Duration::from_secs(seconds)).await
+    })?;
+    let safe = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| {
+            json!({
+                "index": index,
+                "display_name": candidate.display_name,
+                "rssi": candidate.rssi,
+            })
+        })
+        .collect::<Vec<_>>();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "protocol": cliptown_desktop::proximity::PROTOCOL,
+            "foreground_scan": true,
+            "authentication_factor": false,
+            "candidates": safe,
+        }))?
+    );
     Ok(())
 }
 

@@ -8,20 +8,25 @@ license = "Apache-2.0"
 repository = "https://github.com/cliptown/cliptown-desktop.rs"
 
 [features]
-default = ["desktop-ui"]
+default = ["desktop-ui", "bluetooth"]
 desktop-ui = ["dep:gpui"]
+bluetooth = ["dep:btleplug", "dep:futures", "dep:tokio"]
 
 [dependencies]
 anyhow = "1.0.99"
 base64 = "0.22.1"
 blake3 = "1.8.2"
+btleplug = { version = "0.12.0", optional = true }
 chrono = { version = "0.4.41", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5.45", features = ["derive", "env"] }
 clipboard-rs = "0.3.5"
 directories = "6.0.0"
+ed25519-dalek = "3.0.0"
+futures = { version = "0.3.31", optional = true }
 getrandom = "0.4.3"
 gpui = { version = "0.2.2", optional = true }
 hex = "0.4.3"
+hmac = "0.12.1"
 keyring = "4.1.6"
 rusqlite = { version = "0.37.0", features = ["bundled-sqlcipher-vendored-openssl", "chrono", "functions"] }
 serde = { version = "1.0.219", features = ["derive"] }
@@ -29,6 +34,7 @@ serde_json = "1.0.143"
 sha2 = "0.10.9"
 sqlite-vec = "=0.1.9"
 thiserror = "2.0.16"
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "time"], optional = true }
 uuid = { version = "1.18.0", features = ["serde", "v4"] }
 zerocopy = "0.8.26"
 zeroize = "1.8.1"

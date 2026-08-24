@@ -5,6 +5,11 @@ and Linux. It is developed side-by-side with
 [`cliptown-flutter`](https://github.com/cliptown/cliptown-flutter); neither client is
 a prototype, fallback, wrapper, or replacement for the other.
 
+It also contains an independent Windows/macOS/Linux BLE central and the shared
+fail-closed proximity contract. See
+[`docs/BLUETOOTH_PROXIMITY.md`](docs/BLUETOOTH_PROXIMITY.md); Bluetooth never
+counts as an authentication factor, and hosted compilation is not radio proof.
+
 The first functional slice provides:
 
 - native text, PNG image, and file-list clipboard reads;
