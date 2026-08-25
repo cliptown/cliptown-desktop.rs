@@ -7,7 +7,10 @@ use sha2::{Digest, Sha256};
 use sqlite_vec::sqlite3_vec_init;
 use uuid::Uuid;
 
-use crate::{ClipInput, ClipKind, EmbeddingEngine, StoredClip, embedding::as_le_bytes};
+use crate::{
+    ClipInput, ClipKind, EmbeddingEngine, StoredClip, embedding::as_le_bytes,
+    key_store::read_or_create_database_key,
+};
 
 const DEFAULT_HISTORY_LIMIT: usize = 500;
 const MIN_HISTORY_LIMIT: usize = 1;
@@ -30,27 +33,51 @@ pub struct SearchHit {
 
 impl HistoryStore<crate::HashEmbedding> {
     pub fn open(path: &Path) -> Result<Self> {
-        Self::open_with_embedding(path, crate::HashEmbedding)
+        let key = read_or_create_database_key(path)?;
+        Self::open_with_key_and_embedding(path, &key, crate::HashEmbedding)
     }
 
     pub fn open_in_memory() -> Result<Self> {
         register_sqlite_vec();
-        Self::open_connection(Connection::open_in_memory()?, crate::HashEmbedding)
+        Self::open_connection(Connection::open_in_memory()?, None, crate::HashEmbedding)
+    }
+
+    pub fn open_with_key(path: &Path, key: &[u8; 32]) -> Result<Self> {
+        Self::open_with_key_and_embedding(path, key, crate::HashEmbedding)
     }
 }
 
 impl<E: EmbeddingEngine> HistoryStore<E> {
     pub fn open_with_embedding(path: &Path, embedding: E) -> Result<Self> {
+        let key = read_or_create_database_key(path)?;
+        Self::open_with_key_and_embedding(path, &key, embedding)
+    }
+
+    pub fn open_with_key_and_embedding(path: &Path, key: &[u8; 32], embedding: E) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).with_context(|| {
                 format!("create application data directory {}", parent.display())
             })?;
         }
         register_sqlite_vec();
-        Self::open_connection(Connection::open(path)?, embedding)
+        Self::open_connection(Connection::open(path)?, Some(key), embedding)
     }
 
-    fn open_connection(connection: Connection, embedding: E) -> Result<Self> {
+    fn open_connection(
+        connection: Connection,
+        key: Option<&[u8; 32]>,
+        embedding: E,
+    ) -> Result<Self> {
+        if let Some(key) = key {
+            let key_hex = hex::encode(key);
+            connection.execute_batch(&format!("PRAGMA key = \"x'{key_hex}'\";"))?;
+            let cipher_version: String = connection
+                .query_row("PRAGMA cipher_version", [], |row| row.get(0))
+                .context("SQLCipher is unavailable; refusing plaintext history")?;
+            if cipher_version.trim().is_empty() {
+                bail!("SQLCipher is unavailable; refusing plaintext history")
+            }
+        }
         connection.execute_batch(
             "PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;
@@ -152,10 +179,11 @@ impl<E: EmbeddingEngine> HistoryStore<E> {
             ClipInput::Files { uris } => (None, None, None, serde_json::to_string(uris)?),
         };
         let content_hash = content_hash(input);
-        let vector = if search_text.trim().is_empty() {
-            None
-        } else {
-            Some(self.embedding.embed(&search_text))
+        let vector = match input {
+            ClipInput::Text { text, .. } if !text.trim().is_empty() => {
+                Some(self.embedding.embed(text))
+            }
+            _ => None,
         };
         let history_limit = self.history_limit()?;
         let transaction = self.connection.transaction()?;
@@ -505,10 +533,10 @@ mod tests {
         })?;
 
         assert_eq!(store.count()?, 3);
-        assert_eq!(store.embedding_count()?, 2);
+        assert_eq!(store.embedding_count()?, 1);
         assert_eq!(store.text_search("skyline", 10)?.len(), 1);
         assert_eq!(store.text_search("contract", 10)?.len(), 1);
-        assert_eq!(store.vector_search("skyline deployment", 10)?.len(), 2);
+        assert_eq!(store.vector_search("skyline deployment", 10)?.len(), 1);
         Ok(())
     }
 
@@ -529,6 +557,31 @@ mod tests {
         store.set_history_limit(2)?;
         assert_eq!(store.count()?, 3);
         assert!(store.list(10)?.iter().any(|clip| clip.id == pinned.id));
+        Ok(())
+    }
+
+    #[test]
+    fn disk_history_is_encrypted_and_wrong_keys_fail_closed() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("history.db");
+        let key = [0x37_u8; 32];
+        {
+            let mut store = HistoryStore::open_with_key(&path, &key)?;
+            store.insert(&ClipInput::Text {
+                text: "private disk clipboard marker".to_owned(),
+                html: None,
+            })?;
+        }
+
+        let bytes = std::fs::read(&path)?;
+        assert!(!bytes.starts_with(b"SQLite format 3\0"));
+        assert!(
+            !bytes
+                .windows(b"private disk clipboard marker".len())
+                .any(|window| window == b"private disk clipboard marker")
+        );
+        let wrong_key = [0x91_u8; 32];
+        assert!(HistoryStore::open_with_key(&path, &wrong_key).is_err());
         Ok(())
     }
 

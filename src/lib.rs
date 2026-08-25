@@ -1,5 +1,6 @@
 pub mod clipboard;
 pub mod embedding;
+mod key_store;
 pub mod model;
 pub mod store;
 

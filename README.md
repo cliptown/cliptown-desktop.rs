@@ -9,7 +9,7 @@ The first functional slice provides:
 
 - native text, PNG image, and file-list clipboard reads;
 - bounded local history with a user-configurable item count;
-- SQLite FTS search and SQLite-resident 384-dimensional text vectors;
+- SQLCipher-encrypted SQLite FTS search and SQLite-resident 384-dimensional text vectors;
 - pinned items that survive ordinary retention pruning;
 - a native GPUI history window; and
 - a headless conformance probe used on Windows, macOS, and Linux CI runners.
@@ -35,6 +35,10 @@ headless commands. `capture-once`, `search`, and `set-history-limit` are useful 
 diagnostics without opening a window; their output never contains clipboard content
 unless the user explicitly requests search results in their own terminal.
 
+The disk database is encrypted with a random 256-bit key held by macOS Keychain,
+Windows Credential Manager, or Linux Secret Service. If that credential is missing or
+invalid for an existing database, startup fails closed; ClipTown never recreates the
+vault or silently falls back to plaintext.
+
 See [docs/DESKTOP_TOOLKIT.md](docs/DESKTOP_TOOLKIT.md) and
 [docs/STORAGE_AND_SYNC.md](docs/STORAGE_AND_SYNC.md) for the long-lived boundaries.
-

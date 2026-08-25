@@ -2,7 +2,9 @@
 
 ## Local SQLite
 
-`clips` is the authoritative local index. It stores text, PNG previews, file URI lists,
+`clips` is the authoritative local index inside a SQLCipher-encrypted database. The
+random 256-bit database key is stored in the operating-system credential store; a
+missing or wrong key locks an existing vault instead of resetting it. The index stores text, PNG previews, file URI lists,
 organization state, hashes, and timestamps. `clip_embeddings` stores fixed-size
 little-endian `float32` vectors and the embedding model identifier. SQLite FTS5 and
 `sqlite-vec` execute lexical and vector-distance queries locally.
@@ -32,4 +34,3 @@ startup never runs migrations.
 Embedding backup is separately opt-in. The client encrypts the model ID, dimensions,
 and vector bytes before upload. Server-side semantic search is out of scope unless the
 privacy model is explicitly changed and reviewed.
-
