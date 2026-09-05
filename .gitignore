@@ -7,3 +7,7 @@
 *.log
 .env
 
+
+# Local temporary directories and repository-owned worktrees
+tmp/
+temp/
