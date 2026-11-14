@@ -33,4 +33,5 @@ jobs:
           "$RUNNER_TEMP/ores-trace-contract-test"
       - name: Enforce trace and routine markers
         shell: bash
-        run: "$RUNNER_TEMP/ores-trace-contract" .
+        run: |
+          "$RUNNER_TEMP/ores-trace-contract" .
