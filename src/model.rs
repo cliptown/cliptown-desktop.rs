@@ -52,11 +52,12 @@ impl ClipInput {
                 truncate_chars(if first.is_empty() { "Text clip" } else { first }, 72)
             }
             Self::ImagePng { .. } => "Clipboard image".to_owned(),
-            Self::Files { uris } if uris.len() == 1 => uris[0]
-                .rsplit(['/', '\\'])
-                .next()
-                .unwrap_or("File")
-                .to_owned(),
+            Self::Files { uris } if uris.len() == 1 => {
+                // URI query/fragment data can contain signed download tokens.
+                let path = uris[0].split(['?', '#']).next().unwrap_or_default();
+                let name = path.rsplit(['/', '\\']).next().unwrap_or_default();
+                truncate_chars(if name.is_empty() { "File" } else { name }, 72)
+            },
             Self::Files { uris } => format!("{} files", uris.len()),
         }
     }
@@ -92,5 +93,29 @@ fn truncate_chars(value: &str, max: usize) -> String {
         format!("{prefix}…")
     } else {
         prefix
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_file_title_never_exposes_uri_query_tokens() {
+        let input = ClipInput::Files {
+            uris: vec!["file:///home/me/photo.png?token=secret#frag".to_string()],
+        };
+        assert_eq!(input.title(), "photo.png");
+        assert!(!input.title().contains("secret"));
+    }
+
+    #[test]
+    fn windows_and_empty_file_titles_are_bounded() {
+        let input = ClipInput::Files { uris: vec![r"C:\notes\work.txt".to_string()] };
+        assert_eq!(input.title(), "work.txt");
+        let empty = ClipInput::Files { uris: vec!["file:///".to_string()] };
+        assert_eq!(empty.title(), "File");
+        let long = ClipInput::Files { uris: vec!["x".repeat(150)] };
+        assert!(long.title().chars().count() <= 73);
     }
 }
