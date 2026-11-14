@@ -1,8 +1,36 @@
-# Hardcoded ORES IDs: routine IDs at function entry; trace IDs inline at log calls.
+# Pinned ORES checker, executed locally to avoid cross-org reusable-workflow
+# admission failures; no secret, external checkout token, or workflow bypass.
 name: ORES static observability IDs
 on: [push, pull_request, workflow_dispatch]
+
 permissions:
   contents: read
+
 jobs:
   ores-static-observability-ids:
-    uses: ores-otel/ores.otel.log/.github/workflows/ores-trace-contract-reusable.yml@a90638c5dba2a59b1b77c9c55d4c60829b4480d8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out consumer tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Fetch and verify pinned checker
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --retry 3 \
+            'https://raw.githubusercontent.com/ores-otel/ores.otel.log/fd394464b022758575ba0fa60ce8e13b92175e95/.github/ores-trace-contract.rs' \
+            --output "$RUNNER_TEMP/ores-trace-contract.rs"
+          test "$(git hash-object "$RUNNER_TEMP/ores-trace-contract.rs")" = 'bca6075df72c10c05206b36f62b991bb210c58bd'
+      - name: Compile pinned checker
+        shell: bash
+        run: rustc --edition=2021 -D warnings -O -o "$RUNNER_TEMP/ores-trace-contract" "$RUNNER_TEMP/ores-trace-contract.rs"
+      - name: Self-test contract
+        shell: bash
+        run: |
+          rustc --edition=2021 -D warnings --test -o "$RUNNER_TEMP/ores-trace-contract-test" "$RUNNER_TEMP/ores-trace-contract.rs"
+          "$RUNNER_TEMP/ores-trace-contract-test"
+      - name: Enforce trace and routine markers
+        shell: bash
+        run: "$RUNNER_TEMP/ores-trace-contract" .
