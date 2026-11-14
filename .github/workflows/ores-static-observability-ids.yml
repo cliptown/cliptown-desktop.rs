@@ -23,9 +23,11 @@ jobs:
             'https://raw.githubusercontent.com/ores-otel/ores.otel.log/fd394464b022758575ba0fa60ce8e13b92175e95/.github/ores-trace-contract.rs' \
             --output "$RUNNER_TEMP/ores-trace-contract.rs"
           test "$(git hash-object "$RUNNER_TEMP/ores-trace-contract.rs")" = 'bca6075df72c10c05206b36f62b991bb210c58bd'
+      # The upstream checker uses two generator helpers only in #[cfg(test)].
+      # Suppress dead_code in that checker binary, not in consumer code.
       - name: Compile pinned checker
         shell: bash
-        run: rustc --edition=2021 -D warnings -O -o "$RUNNER_TEMP/ores-trace-contract" "$RUNNER_TEMP/ores-trace-contract.rs"
+        run: rustc --edition=2021 -D warnings -A dead_code -O -o "$RUNNER_TEMP/ores-trace-contract" "$RUNNER_TEMP/ores-trace-contract.rs"
       - name: Self-test contract
         shell: bash
         run: |
