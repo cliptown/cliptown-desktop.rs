@@ -57,7 +57,10 @@ fn checked_text_clip(text: String, html: Option<String>) -> Result<ClipInput> {
     if text.len() > MAX_TEXT_BYTES {
         bail!("clipboard text exceeds the byte limit");
     }
-    if html.as_ref().is_some_and(|value| value.len() > MAX_HTML_BYTES) {
+    if html
+        .as_ref()
+        .is_some_and(|value| value.len() > MAX_HTML_BYTES)
+    {
         bail!("clipboard HTML exceeds the byte limit");
     }
     if text.trim().is_empty() {
@@ -82,13 +85,7 @@ mod tests {
     #[test]
     fn refuses_oversized_text_and_html_independently() {
         assert!(checked_text_clip("x".repeat(MAX_TEXT_BYTES + 1), None).is_err());
-        assert!(checked_text_clip(
-            "x".to_owned(),
-            Some("a".repeat(MAX_HTML_BYTES + 1))
-        ).is_err());
-        assert!(checked_text_clip(
-            "🙂".repeat(MAX_TEXT_BYTES / 4 + 1),
-            None
-        ).is_err());
+        assert!(checked_text_clip("x".to_owned(), Some("a".repeat(MAX_HTML_BYTES + 1))).is_err());
+        assert!(checked_text_clip("🙂".repeat(MAX_TEXT_BYTES / 4 + 1), None).is_err());
     }
 }
