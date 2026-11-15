@@ -4,6 +4,8 @@ use clipboard_rs::{Clipboard, ClipboardContext, ContentFormat, common::RustImage
 use crate::ClipInput;
 
 pub const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_TEXT_BYTES: usize = 1024 * 1024;
+pub const MAX_HTML_BYTES: usize = 1024 * 1024;
 pub const MAX_FILES: usize = 128;
 
 pub fn read_native_clipboard() -> Result<ClipInput> {
@@ -41,13 +43,49 @@ pub fn read_native_clipboard() -> Result<ClipInput> {
     let text = context
         .get_text()
         .map_err(|error| anyhow!("read clipboard text: {error}"))?;
-    if text.trim().is_empty() {
-        bail!("clipboard contains no supported non-empty content");
-    }
     let html = if context.has(ContentFormat::Html) {
         context.get_html().ok().filter(|value| !value.is_empty())
     } else {
         None
     };
+    checked_text_clip(text, html)
+}
+
+/// Refuse oversized clipboard text/HTML before forwarding it to encrypted history.
+/// Byte limits apply to UTF-8, not Unicode scalar counts.
+fn checked_text_clip(text: String, html: Option<String>) -> Result<ClipInput> {
+    if text.len() > MAX_TEXT_BYTES {
+        bail!("clipboard text exceeds the byte limit");
+    }
+    if html
+        .as_ref()
+        .is_some_and(|value| value.len() > MAX_HTML_BYTES)
+    {
+        bail!("clipboard HTML exceeds the byte limit");
+    }
+    if text.trim().is_empty() {
+        bail!("clipboard contains no supported non-empty content");
+    }
     Ok(ClipInput::Text { text, html })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_bounded_text_and_optional_html() {
+        assert!(matches!(
+            checked_text_clip("hello".to_owned(), Some("<b>hello</b>".to_owned())),
+            Ok(ClipInput::Text { .. })
+        ));
+        assert!(checked_text_clip("  ".to_owned(), None).is_err());
+    }
+
+    #[test]
+    fn refuses_oversized_text_and_html_independently() {
+        assert!(checked_text_clip("x".repeat(MAX_TEXT_BYTES + 1), None).is_err());
+        assert!(checked_text_clip("x".to_owned(), Some("a".repeat(MAX_HTML_BYTES + 1))).is_err());
+        assert!(checked_text_clip("🙂".repeat(MAX_TEXT_BYTES / 4 + 1), None).is_err());
+    }
 }
